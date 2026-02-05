@@ -524,6 +524,12 @@ with open(pbrify_log_path, 'w') as log_file:
                 print('\n' + message)
                 process.terminate()
                 print('After exiting you should delete the last processed conversion output folder to avoid skipping it next time.')
+                print('Waiting for create_pbr.exe to exit... (15s max)')
+                try:
+                    process.wait(timeout=15)
+                except subprocess.TimeoutExpired:
+                    print('create_pbr.exe took too long to exit, killing process.')
+                    process.kill()
                 ask_to_exit()
                 sys.exit()
 
