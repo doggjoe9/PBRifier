@@ -191,7 +191,7 @@ def ask_directory(prompt: str, title: str, initialdir: Path | None = Path.cwd())
 # returns the selected file as a Path or exits the program if cancelled
 def ask_file(prompt: str, title: str, initialdir: Path | None = Path.cwd(), filetypes: list = [('Any File', '*')], allowed_filenames: list[str] = []) -> Path:
     chosen = None
-    while (chosen is None) or (not is_valid_file(Path(chosen))) or (len(allowed_filenames) > 0 and Path(chosen).name not in allowed_filenames):
+    while (chosen is None) or (not is_valid_file(chosen)) or (len(allowed_filenames) > 0 and chosen.name.lower() not in allowed_filenames):
         print(prompt)
         response = filedialog.askopenfilename(title=title, initialdir=initialdir, filetypes=filetypes)
         # check if the user cancelled the dialog (or something went wrong and we got None for safety)
@@ -201,7 +201,7 @@ def ask_file(prompt: str, title: str, initialdir: Path | None = Path.cwd(), file
         
         chosen = Path(response)
         # notify the user if their selection was invalid or did not exist
-        if not is_valid_file(Path(chosen)):
+        if not is_valid_file(chosen):
             print(f'The specified file does not exist: {chosen.resolve(strict=False)}')
         # notify the user if their selection was not in the allowed filenames
         elif len(allowed_filenames) > 0 and chosen.name.lower() not in allowed_filenames:
