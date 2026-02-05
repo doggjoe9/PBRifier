@@ -540,7 +540,6 @@ with open(pbrify_log_path, 'w') as log_file:
                                 else:
                                     message = f'Could not parse texture count from line:\n {line}'
                                     log_file.write(message + '\n')
-                                    raise ValueError(message)
                             # When a pair is processed, create_pbr.exe will print a line containing "PBR inference complete"
                             elif 'PBR inference complete' in line:
                                 sub_pbar.update(1)
