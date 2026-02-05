@@ -72,6 +72,13 @@
 # 1.1.0
 # - Removed vestigial code from debugging
 # - Switched to using pathlib for paths for better compatibility and safer path handling
+#
+# 1.1.1
+# - Rewrote control flow for has_textures_but_no_pbr to prevent it from succeeding erroneously.
+# - Fixed regex pattern for sanitizing suffixes being case-sensitive when it should not have been.
+# - Fixed some problems in an rglob that would lead to files being included from non-textures folders and missing files with uppercase extensions.
+# - Fixed an unhandled parsing error that would crash the program if create_pbr.exe printed unexpected output.
+# - Added timeout to wait for create_pbr.exe to terminate after an error, before trying to kill it.
 
 
 import sys
