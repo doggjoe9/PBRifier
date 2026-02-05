@@ -6,7 +6,7 @@
 # !!! WARNING !!!-------------------------------------------------
 # USE AT YOUR OWN RISK
 # This software is provided as-is, use at your own risk.
-# I is not responsible for any damage caused by this software.
+# I am not responsible for any damage caused by this software.
 # I am not responsible for damage to your system, data loss, or any other issues that may arise from using this software.
 # ----------------------------------------------------------------
 # I cannot guarantee the stability or safety of this script.
