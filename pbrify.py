@@ -424,7 +424,7 @@ def has_textures_but_no_pbr(f: Path) -> bool:
     textures_paths = list(f.glob('textures', case_sensitive=False))
     # There must be exactly one textures folder
     # 0 means no textures folder
-    # >1 means multiple textures folders (POSIX filesystems are case-sensitive).
+    # >1 means multiple textures folders which would not only cause problems in the conversion, but likely also with the game.
     if len(textures_paths) == 1:
         # textures_paths[0] is guaranteed to be a folder named textures
         textures_path = textures_paths[0]
