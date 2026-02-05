@@ -408,6 +408,8 @@ with open(config_file_path, 'w') as config_file:
 
 # have the user confirm that they know how to safely abort the program
 print('\nAt any time you may hold Ctrl+C to abort the program.')
+# deleting the last processed mod output would be easy to implement, but i do not want to risk adding a recursive delete
+# leave that choice to the user.
 print('If you abort the program, please delete the last processed output mod folder in the output directory or else it will be skipped next time.\n')
 input('Press Enter to confirm you have read and understood this message.')
 
@@ -523,6 +525,8 @@ with open(pbrify_log_path, 'w') as log_file:
                 log_file.write(message + '\n')
                 print('\n' + message)
                 process.terminate()
+                # deleting the output would be possible here, but i don't want to risk throwing recursive deletes into this code
+                # leave that up to the user.
                 print('After exiting you should delete the last processed conversion output folder to avoid skipping it next time.')
                 print('Waiting for create_pbr.exe to exit... (15s max)')
                 try:
