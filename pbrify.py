@@ -494,7 +494,12 @@ with open(pbrify_log_path, 'w') as log_file:
                 log_file.write(message + '\n')
                 tqdm.write(message)
                 continue
-            os.makedirs(output_path)
+            
+            # The above check should prevent os.makedirs from throwing an error,
+            # since if the directory exists we skip to the next mod.
+            # However it is safer to keep exists_ok=False, since if the logic were to fail
+            # we would crash the program instead of potentially overwriting existing data.
+            os.makedirs(output_path, exist_ok=False)
             
             # iterate through all the files in the mod to sanitize any bad names
             # this is necessary because create_pbr.exe is case-sensitive for suffixes
