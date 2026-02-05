@@ -1,6 +1,6 @@
 # Author: shak
 # Description: A script to batch convert mod textures to PBR using create_pbr.exe
-# Requirements: Python 3.6+, tqdm
+# Requirements: Python 3.12+, tqdm
 # Usage: python3 pbrify.py
 
 # !!! WARNING !!!-------------------------------------------------

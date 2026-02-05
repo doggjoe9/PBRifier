@@ -1,6 +1,6 @@
 # Author: shak
 # Description: A script to batch convert mod textures to PBR using create_pbr.exe
-# Requirements: Python 3.6+, tqdm
+# Requirements: Python 3.12+, tqdm
 # Usage: python3 pbrify.py
 
 # !!! WARNING !!!-------------------------------------------------
@@ -80,9 +80,9 @@ def ask_to_exit():
     input('Press Enter to exit.')
     sys.exit()
 
-# check for python 3.6+
-if not sys.version_info >= (3, 6):
-    print('This script requires Python 3.6 or higher.')
+# check for python 3.12+
+if not sys.version_info >= (3, 12):
+    print('This script requires Python 3.12 or higher.')
     ask_to_exit()
 
 import os
@@ -494,7 +494,7 @@ with open(pbrify_log_path, 'w') as log_file:
                 log_file.write(message + '\n')
                 tqdm.write(message)
                 continue
-            
+
             # The above check should prevent os.makedirs from throwing an error,
             # since if the directory exists we skip to the next mod.
             # However it is safer to keep exists_ok=False, since if the logic were to fail
