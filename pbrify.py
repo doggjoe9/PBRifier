@@ -498,7 +498,7 @@ with open(pbrify_log_path, 'w') as log_file:
             
             # iterate through all the files in the mod to sanitize any bad names
             # this is necessary because create_pbr.exe is case-sensitive for suffixes
-            all_textures = list(mod_path.rglob('**/*.dds'))
+            all_textures = list(textures_path.rglob('*.dds', case_sensitive=False))
             for texture_path in all_textures:
                 if is_valid_file(texture_path):
                     sanitized_name = fix_suffix_case(texture_path.name, allowed_suffixes)
