@@ -460,7 +460,7 @@ mods = filtered_mods
 # sanitize the suffixes of textures otherwise convert_pbr will fail to recognize them
 # list of suffixes convert_pbr recognizes
 allowed_suffixes = ['diffuse', 'diff', 'd', 'normal', 'norm', 'n', 'glow', 'g']
-suffix_capture_regex = re.compile(r'_(?P<suffix>[^_.]+)(\.dds)$')
+suffix_capture_regex = re.compile(r'_(?P<suffix>[^_.]+)(\.dds)$', re.IGNORECASE)
 def fix_suffix_case(filename: str, allowed_suffixes: list[str]) -> str:
     allowed = {s.lower() for s in allowed_suffixes}
     m = suffix_capture_regex.search(filename)
