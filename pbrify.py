@@ -168,6 +168,7 @@ root.withdraw()  # hide the main window
 # returns the selected directory as a Path or exits the program if cancelled
 def ask_directory(prompt: str, title: str, initialdir: Path | None = Path.cwd()) -> Path:
     chosen = None
+    # keep doing this until we get a valid directory from the user or they cancel (which exits the program)
     while (chosen is None) or (not is_valid_directory(chosen)):
         print(prompt)
         response = filedialog.askdirectory(title=title, initialdir=initialdir)
@@ -191,6 +192,7 @@ def ask_directory(prompt: str, title: str, initialdir: Path | None = Path.cwd())
 # returns the selected file as a Path or exits the program if cancelled
 def ask_file(prompt: str, title: str, initialdir: Path | None = Path.cwd(), filetypes: list = [('Any File', '*')], allowed_filenames: list[str] = []) -> Path:
     chosen = None
+    # keep doing this until we get a valid file from the user or they cancel (which exits the program)
     while (chosen is None) or (not is_valid_file(chosen)) or (len(allowed_filenames) > 0 and chosen.name.lower() not in allowed_filenames):
         print(prompt)
         response = filedialog.askopenfilename(title=title, initialdir=initialdir, filetypes=filetypes)
@@ -223,6 +225,7 @@ def ask_create_pbr_path(initialdir: Path = Path.cwd()) -> Path:
 # asks the user to select the checkpoint
 def ask_checkpoint() -> str:
     selected_checkpoint = ''
+    # keep asking until we get a valid checkpoint
     while selected_checkpoint not in allowed_checkpoints:
         print('Specify the model to use.')
         print(f'Allowed values: {", ".join(allowed_checkpoints)}')
@@ -239,6 +242,7 @@ def ask_checkpoint() -> str:
 # asks the user to select the texture format
 def ask_texture_format() -> str:
     selected_format = ''
+    # keep asking until we get a valid texture format
     while selected_format not in allowed_texture_formats:
         print('Specify the texture format to output.')
         print('Using a format other than DDS not recommended unless you plan on editing the textures after conversion.')
@@ -257,6 +261,7 @@ def ask_texture_format() -> str:
 # asks the user to select the max tile size
 def ask_max_tile_size() -> str:
     selected_size = ''
+    # keep asking until we get a valid tile size
     while selected_size not in allowed_tile_sizes:
         print('Specify the maximum tile size for the output textures.')
         print('Using 2048 will most likely result in very large textures and long processing times due to VRAM bottlencking.')
@@ -414,9 +419,9 @@ print('If you abort the program, please delete the last processed output mod fol
 input('Press Enter to confirm you have read and understood this message.')
 
 # assign settings to variables for easier access
-mods_directory: Path = settings['mods_directory']
-output_directory: Path = settings['output_directory']
-create_pbr_path: Path = settings['create_pbr_path']
+mods_directory: Path = settings['mods_directory'].resolve()
+output_directory: Path = settings['output_directory'].resolve()
+create_pbr_path: Path = settings['create_pbr_path'].resolve()
 checkpoint: str = settings['checkpoint']
 texture_format: str = settings['texture_format']
 max_tile_size: str = settings['max_tile_size']
