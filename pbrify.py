@@ -421,23 +421,21 @@ max_tile_size: str = settings['max_tile_size']
 
 # checks if the folder f has a textures folder, but does not have a pbr folder
 def has_textures_but_no_pbr(f: Path) -> bool:
-    all_textures_paths = list(f.glob('textures', case_sensitive=False))
-    # if there are zero folders named textures, return false
-    # if there are more than one folder named textures, return false (who would do this???)
-    # the latter is only possible on Posix systems, but safe to check anyway
-    if len(all_textures_paths) != 1:
-        return False
-    # all_textures_paths[0] is guaranteed to be a folder named textures
-    textures_path = all_textures_paths[0]
-    if is_valid_directory(textures_path):
-        # check if there is a pbr folder inside the textures folder
-        all_pbr_paths = list(textures_path.glob('pbr', case_sensitive=False))
-        # if there are any folders that are named pbr in any case, then return false
-        if len(all_pbr_paths) > 0:
-            return False
-        
-    # if nothing failed early, then there is a textures folder and no pbr folder
-    return True
+    textures_paths = list(f.glob('textures', case_sensitive=False))
+    # There must be exactly one textures folder
+    # 0 means no textures folder
+    # >1 means multiple textures folders (POSIX filesystems are case-sensitive).
+    if len(textures_paths) == 1:
+        # textures_paths[0] is guaranteed to be a folder named textures
+        textures_path = textures_paths[0]
+        if is_valid_directory(textures_path):
+            # check if there is a pbr folder inside the textures folder
+            all_pbr_paths = list(textures_path.glob('pbr', case_sensitive=False))
+            if len(all_pbr_paths) == 0:
+                # All checks passed, so return true
+                return True
+    # If any of the above checks failed, then return false
+    return False
 
 # list all of the mod names/paths
 mods: list[Path] = [f for f in mods_directory.iterdir() if is_valid_directory(f)]
