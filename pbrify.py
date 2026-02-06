@@ -433,7 +433,10 @@ checkpoint: str = settings['checkpoint']
 texture_format: str = settings['texture_format']
 max_tile_size: str = settings['max_tile_size']
 
-# checks if the folder f has a textures folder, but does not have a pbr folder
+# list all of the mod names/paths
+mods: list[Path] = [f for f in mods_directory.iterdir() if is_valid_directory(f)]
+
+# filter out all mods that do not have textures or already have pbr
 def has_textures_but_no_pbr(f: Path) -> bool:
     textures_paths = list(f.glob('textures', case_sensitive=False))
     # There must be exactly one textures folder
@@ -451,25 +454,38 @@ def has_textures_but_no_pbr(f: Path) -> bool:
     # If any of the above checks failed, then return false
     return False
 
-# list all of the mod names/paths
-mods: list[Path] = [f for f in mods_directory.iterdir() if is_valid_directory(f)]
-
-# filter out all mods that do not have textures or already have pbr
-filtered_mods = []
 with tqdm(mods, miniters=1, desc='Filtering for mods with textures and no PBR') as pbar:
-    for mod_path in pbar:
-        if has_textures_but_no_pbr(mod_path):
-            filtered_mods.append(mod_path)
-mods = filtered_mods
+    mods = [mod for mod in pbar if has_textures_but_no_pbr(mod)]
+
+# filter out mods that do not have valid diffuse-normal pairs to be processed
+normal_suffix_regex = re.compile(r'_(n|norm|normal)$', re.IGNORECASE)
+def mod_has_valid_diffuse_normal_pair(mod_path: Path) -> bool:
+    textures_path = next(mod_path.glob('textures', case_sensitive=False))
+    all_normals = list(textures_path.rglob('*_n.dds', case_sensitive=False)) + \
+                  list(textures_path.rglob('*_norm.dds', case_sensitive=False)) + \
+                  list(textures_path.rglob('*_normal.dds', case_sensitive=False))
+    if len(all_normals) > 0:
+        for normal_path in all_normals:
+            normal_stem = normal_path.stem.lower()
+            normal_stem = normal_suffix_regex.sub('', normal_stem)
+            has_diffuse = any(normal_path.parent.glob(f'{normal_stem}*.dds', case_sensitive=False)) or \
+                          any(normal_path.parent.glob(f'{normal_stem}_d.png', case_sensitive=False)) or \
+                          any(normal_path.parent.glob(f'{normal_stem}_diff.png', case_sensitive=False)) or \
+                          any(normal_path.parent.glob(f'{normal_stem}_diffuse.png', case_sensitive=False))
+            if has_diffuse:
+                return True
+    return False
+
+with tqdm(mods, miniters=1, desc='Filtering for mods with valid diffuse-normal pairs') as pbar:
+    mods = [mod for mod in pbar if mod_has_valid_diffuse_normal_pair(mod)]
 
 # filter out all mods that have already been converted
-filtered_mods = []
+def mod_already_converted(mod_path: Path) -> bool:
+    output_path = output_directory / f'{mod_path.name} PBR'
+    return is_valid_directory(output_path)
+
 with tqdm(mods, miniters=1, desc='Filtering existing conversions') as pbar:
-    for mod_path in pbar:
-        output_path = output_directory / f'{mod_path.name} PBR'
-        if not output_path.exists():
-            filtered_mods.append(mod_path)
-mods = filtered_mods
+    mods = [mod for mod in pbar if not mod_already_converted(mod)]
 
 # sanitize the suffixes of textures otherwise convert_pbr will fail to recognize them
 # list of suffixes convert_pbr recognizes
