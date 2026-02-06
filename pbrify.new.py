@@ -614,12 +614,12 @@ class ProcessorWorker(QThread):
                 not self.settings.output_directory.is_dir()):
                 return []
             
-            all_folders = [f for f in self.settings.mods_directory.iterdir() if is_valid_directory(f)] # type: ignore mods_directory is checked above
+            all_folders = [f for f in self.settings.mods_directory.iterdir() if f.is_dir()]
             
             for folder in all_folders:
                 if has_textures_but_no_pbr(folder):
                     if has_valid_pairs(folder):
-                        output_path = self.settings.output_directory / f'{folder.name} PBR' # type: ignore output_directory is checked above
+                        output_path = self.settings.output_directory / f'{folder.name} PBR'
                         if not output_path.exists():
                             mods.append(folder)
         except Exception as e:
@@ -686,7 +686,7 @@ class ProcessorWorker(QThread):
                 self.stats.skipped_mods += 1
                 return False
             
-            output_path = self.settings.output_directory / f'{mod_name} PBR' # type: ignore output_directory is checked above
+            output_path = self.settings.output_directory / f'{mod_name} PBR'
             
             # Check if already processed
             if output_path is not None and output_path.is_dir():
@@ -741,7 +741,7 @@ class ProcessorWorker(QThread):
                 self.logger.error(f"Output path is invalid: {output_path}")
                 return False
             cmd = [
-                str(self.settings.create_pbr_path.resolve()), # type: ignore create_pbr_path is checked in is_valid_file
+                str(self.settings.create_pbr_path.resolve()),
                 '--input_dir', str(mod_path.resolve()),
                 '--output_dir', str(output_path.resolve()),
                 '--format', self.settings.texture_format,
