@@ -1,7 +1,5 @@
 # Authors: AlhimikPh, shak
 # Description: A script to batch convert mod textures to PBR using create_pbr.exe
-# Requirements: Python 3.12+, tqdm
-# Usage: python3 pbrify.py
 
 # !!! WARNING !!!-------------------------------------------------
 # USE AT YOUR OWN RISK
@@ -80,3 +78,8 @@
 # - Fixed some problems in an rglob that would lead to files being included from non-textures folders and missing files with uppercase extensions.
 # - Fixed an unhandled parsing error that would crash the program if create_pbr.exe printed unexpected output.
 # - Added timeout to wait for create_pbr.exe to terminate after an error, before trying to kill it.
+# 
+# 2.0.0
+# - UI update by AlhimikPh (thank you!)
+# - Minor potential bug fixes
+# - Now skips any mods that cannot be converted by create_pbr.exe
