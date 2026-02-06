@@ -1,10 +1,15 @@
-# AUTHOR: AlhimikPh, doggyjoe9
+# AUTHORS: AlhimikPh, shak
+
+# Thank you to AlhimikPh for cleaning up my messy code, implementing a proper UI,
+# and giving me advice on PyInstaller compilation.
+# - shak
 
 import sys
 import os
 import subprocess
 import re
 import logging
+import itertools
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Optional
@@ -31,7 +36,7 @@ except ImportError:
 # CONSTANTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-PYTHON_MIN_VERSION = (3, 6)
+PYTHON_MIN_VERSION = (3, 12)
 CONFIG_FILE_NAME = 'config.txt'
 LOG_FILE_NAME = 'pbrify_log.txt'
 
@@ -44,7 +49,10 @@ DEFAULT_TEXTURE_FORMAT = 'dds'
 ALLOWED_TILE_SIZES = ['1024', '2048']
 DEFAULT_TILE_SIZE = '1024'
 
-ALLOWED_SUFFIXES = ['diffuse', 'diff', 'd', 'normal', 'norm', 'n', 'glow', 'g']
+ALLOWED_NORMAL_SUFFIXES = ['n', 'norm', 'normal']
+ALLOWED_DIFFUSE_SUFFIXES = ['d', 'diff', 'diffuse']
+ALLOWED_GLOW_SUFFIXES = ['g', 'glow']
+ALLOWED_SUFFIXES = ALLOWED_NORMAL_SUFFIXES + ALLOWED_DIFFUSE_SUFFIXES + ALLOWED_GLOW_SUFFIXES
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # PHOTOSHOP-LIKE DARK THEME STYLESHEET
@@ -339,6 +347,79 @@ def setup_logging(log_signals: Optional[LogSignals] = None) -> logging.Logger:
     return logger
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# UTILITY FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Regex patterns
+SUFFIX_CAPTURE_REGEX = re.compile(r'_(?P<suffix>[^_.]+)(\.dds)$', re.IGNORECASE)
+DIGITS_AT_END_REGEX = re.compile(r'(\d+)\s*$')
+NORMAL_MAP_REGEX = re.compile(fr'_({'|'.join(ALLOWED_NORMAL_SUFFIXES)})$', re.IGNORECASE)
+
+
+def fix_suffix_case(filename: str, allowed_suffixes: list) -> str:
+    """Fix the case of texture suffixes to lowercase."""
+    allowed = {s.lower() for s in allowed_suffixes}
+    m = SUFFIX_CAPTURE_REGEX.search(filename)
+    # check if we matched any suffix (_[suffix].dds)
+    if m:
+        suffix = m.group('suffix')
+        # check if the suffix is in the allowed list and if it contains any uppercase letters
+        if suffix.lower() in allowed and any(c.isupper() for c in suffix):
+            # fix the file name and return it
+            return filename[:m.start('suffix')] + suffix.lower() + filename[m.end('suffix'):]
+    # if anything above failed, then the filename is alright. just return as is.
+    return filename
+
+
+def has_textures_but_no_pbr(folder: Path) -> bool:
+    """Check if folder has a textures folder but no pbr folder."""
+    try:
+        textures_paths = [p for p in folder.iterdir() if p.is_dir() and p.name.lower() == 'textures']
+        
+        # if len < 1: there is no textures folder
+        # if len > 1: there are multiple textures folders (only possible on case-sensitive file systems)
+        if len(textures_paths) != 1:
+            return False
+        
+        pbr_paths = [p for p in textures_paths[0].iterdir() if p.is_dir() and p.name.lower() == 'pbr']
+        if len(pbr_paths) > 0:
+            return False
+        
+        return True
+    except Exception:
+        return False
+
+def has_valid_pairs(mod_folder: Path) -> bool:
+    """Check if the folder has valid diffuse/normal pairs to be processed."""
+    try:
+        if mod_folder is None or not mod_folder.is_dir():
+            return False
+        textures_folder = next(mod_folder.glob('textures', case_sensitive=False), None)
+        if textures_folder is not None and textures_folder.is_dir():
+            normal_iter = itertools.chain(
+                textures_folder.rglob('*_n.dds', case_sensitive=False),
+                textures_folder.rglob('*_norm.dds', case_sensitive=False),
+                textures_folder.rglob('*_normal.dds', case_sensitive=False)
+            )
+            for normal in normal_iter:
+                if normal.is_file():
+                    normal_stem_without_suffix = NORMAL_MAP_REGEX.sub('', normal.stem)
+                    diffuse_iter = itertools.chain(
+                        normal.parent.glob(f'{normal_stem_without_suffix}.dds', case_sensitive=False),
+                        normal.parent.glob(f'{normal_stem_without_suffix}_d.dds', case_sensitive=False),
+                        normal.parent.glob(f'{normal_stem_without_suffix}_diff.dds', case_sensitive=False),
+                        normal.parent.glob(f'{normal_stem_without_suffix}_diffuse.dds', case_sensitive=False)
+                    )
+                    found_diffuse = next(diffuse_iter, None)
+                    if found_diffuse and found_diffuse.is_file():
+                        return True
+        return False
+    except Exception:
+        return False
+                
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # DATA CLASSES
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -355,20 +436,14 @@ class Settings:
     def is_valid(self) -> bool:
         """Check if all required settings are valid."""
         return (
-            self.mods_directory is not None and 
-            self.mods_directory.exists() and 
-            self.mods_directory.is_dir() and
-            self.output_directory is not None and 
-            self.output_directory.exists() and 
-            self.output_directory.is_dir() and
-            self.create_pbr_path is not None and 
-            self.create_pbr_path.exists() and 
-            self.create_pbr_path.is_file() and
+            self.mods_directory is not None and self.mods_directory.is_dir() and
+            self.output_directory is not None and self.output_directory.is_dir() and
+            self.create_pbr_path is not None and self.create_pbr_path.is_file() and
             self.create_pbr_path.name.lower() == 'create_pbr.exe'
         )
     
     def save(self, path: Path) -> bool:
-        """Save settings to a config file."""
+        """Save settings to a config file. Returns False on failure."""
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 if self.mods_directory:
@@ -385,7 +460,7 @@ class Settings:
             return False
     
     @classmethod
-    def load(cls, path: Path) -> 'Settings':
+    def load(cls, path: Path) -> Settings:
         """Load settings from a config file."""
         settings = cls()
         if not path.exists():
@@ -404,17 +479,17 @@ class Settings:
             
             if 'mods_directory' in config:
                 p = Path(config['mods_directory'])
-                if p.exists() and p.is_dir():
+                if p.is_dir():
                     settings.mods_directory = p
             
             if 'output_directory' in config:
                 p = Path(config['output_directory'])
-                if p.exists() and p.is_dir():
+                if p.is_dir():
                     settings.output_directory = p
             
             if 'create_pbr_path' in config:
                 p = Path(config['create_pbr_path'])
-                if p.exists() and p.is_file() and p.name.lower() == 'create_pbr.exe':
+                if p.is_file() and p.name.lower() == 'create_pbr.exe':
                     settings.create_pbr_path = p
             
             if 'checkpoint' in config and config['checkpoint'] in ALLOWED_CHECKPOINTS:
@@ -494,55 +569,6 @@ class ProcessingStats:
         return "\n".join(lines)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# UTILITY FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def is_valid_file(path: Optional[Path]) -> bool:
-    """Check if path is a valid file."""
-    return path is not None and path.exists() and path.is_file()
-
-
-def is_valid_directory(path: Optional[Path]) -> bool:
-    """Check if path is a valid directory."""
-    return path is not None and path.exists() and path.is_dir()
-
-
-def has_textures_but_no_pbr(folder: Path) -> bool:
-    """Check if folder has a textures folder but no pbr folder."""
-    try:
-        textures_paths = [p for p in folder.iterdir() if p.is_dir() and p.name.lower() == 'textures']
-        
-        if len(textures_paths) != 1:
-            return False
-        
-        textures_path = textures_paths[0]
-        if is_valid_directory(textures_path):
-            pbr_paths = [p for p in textures_path.iterdir() if p.is_dir() and p.name.lower() == 'pbr']
-            if len(pbr_paths) > 0:
-                return False
-        
-        return True
-    except Exception:
-        return False
-
-
-# Regex patterns
-SUFFIX_CAPTURE_REGEX = re.compile(r'_(?P<suffix>[^_.]+)(\.dds)$', re.IGNORECASE)
-DIGITS_AT_END_REGEX = re.compile(r'(\d+)\s*$')
-
-
-def fix_suffix_case(filename: str, allowed_suffixes: list) -> str:
-    """Fix the case of texture suffixes to lowercase."""
-    allowed = {s.lower() for s in allowed_suffixes}
-    m = SUFFIX_CAPTURE_REGEX.search(filename)
-    if not m:
-        return filename
-    suffix = m.group('suffix')
-    if suffix.lower() in allowed and any(c.isupper() for c in suffix):
-        return filename[:m.start('suffix')] + suffix.lower() + filename[m.end('suffix'):]
-    return filename
-
-# ═══════════════════════════════════════════════════════════════════════════════
 # WORKER THREAD SIGNALS
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -550,7 +576,7 @@ class WorkerSignals(QObject):
     """Signals for the processing worker thread."""
     progress = Signal(int, int, str)  # current, total, mod_name
     mod_progress = Signal(int, int)   # current, total
-    finished = Signal(object)          # ProcessingStats
+    finished = Signal(object)         # ProcessingStats
     error = Signal(str)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -580,21 +606,25 @@ class ProcessorWorker(QThread):
     
     def get_mods_to_process(self) -> list:
         """Get list of mods that need processing."""
-        if not self.settings.mods_directory:
-            return []
-        
         mods = []
         try:
-            all_folders = [f for f in self.settings.mods_directory.iterdir() if is_valid_directory(f)]
+            if (self.settings.mods_directory is None or
+                not self.settings.mods_directory.is_dir()
+                or self.settings.output_directory is None or
+                not self.settings.output_directory.is_dir()):
+                return []
+            
+            all_folders = [f for f in self.settings.mods_directory.iterdir() if is_valid_directory(f)] # type: ignore mods_directory is checked above
             
             for folder in all_folders:
                 if has_textures_but_no_pbr(folder):
-                    output_path = self.settings.output_directory / f'{folder.name} PBR'
-                    if not output_path.exists():
-                        mods.append(folder)
+                    if has_valid_pairs(folder):
+                        output_path = self.settings.output_directory / f'{folder.name} PBR' # type: ignore output_directory is checked above
+                        if not output_path.exists():
+                            mods.append(folder)
         except Exception as e:
             self.logger.error(f"Error scanning mods directory: {e}")
-        
+            return [] # in case of error, return empty list to avoid processing
         return mods
     
     def run(self):
@@ -645,6 +675,10 @@ class ProcessorWorker(QThread):
         self.logger.info(f"Processing: {mod_name}")
         
         try:
+            if self.settings.output_directory is None or not self.settings.output_directory.is_dir():
+                self.logger.error("Output directory is not set.")
+                return False
+    
             # Find textures folder
             textures_paths = [p for p in mod_path.iterdir() if p.is_dir() and p.name.lower() == 'textures']
             if not textures_paths:
@@ -652,16 +686,16 @@ class ProcessorWorker(QThread):
                 self.stats.skipped_mods += 1
                 return False
             
-            output_path = self.settings.output_directory / f'{mod_name} PBR'
+            output_path = self.settings.output_directory / f'{mod_name} PBR' # type: ignore output_directory is checked above
             
             # Check if already processed
-            if is_valid_directory(output_path):
+            if output_path is not None and output_path.is_dir():
                 self.logger.info(f"{mod_name} already processed, skipping.")
                 self.stats.skipped_mods += 1
                 return False
             
             # Create output directory
-            os.makedirs(output_path)
+            os.makedirs(output_path, exist_ok=False) # explicitly fail if the directory exists to avoid overwriting in case of an error
             
             # Sanitize texture names
             self.sanitize_textures(mod_path)
@@ -681,14 +715,14 @@ class ProcessorWorker(QThread):
     def sanitize_textures(self, mod_path: Path):
         """Sanitize texture file names."""
         try:
-            all_textures = list(mod_path.rglob('*.dds'))
+            all_textures = list(mod_path.rglob('*.dds', case_sensitive=False))
             for texture_path in all_textures:
-                if is_valid_file(texture_path):
+                if texture_path.is_file():
                     sanitized_name = fix_suffix_case(texture_path.name, ALLOWED_SUFFIXES)
                     if sanitized_name != texture_path.name:
                         new_path = texture_path.with_name(sanitized_name)
                         self.logger.debug(f"Renaming: {texture_path.name} -> {sanitized_name}")
-                        os.rename(texture_path, new_path)
+                        os.rename(texture_path.resolve(), new_path.resolve())
                         self.stats.renamed_files += 1
         except Exception as e:
             self.logger.error(f"Error sanitizing textures: {e}")
@@ -696,8 +730,18 @@ class ProcessorWorker(QThread):
     def run_create_pbr(self, mod_path: Path, output_path: Path, mod_name: str) -> bool:
         """Run create_pbr.exe on a mod."""
         try:
+            # check paths for sanity
+            if self.settings.create_pbr_path is None or not self.settings.create_pbr_path.is_file() or not self.settings.create_pbr_path.name.lower() == 'create_pbr.exe':
+                self.logger.error("create_pbr.exe path is not set or invalid.")
+                return False
+            if self.settings.mods_directory is None or not self.settings.mods_directory.is_dir():
+                self.logger.error(f"Mod path is invalid: {mod_path}")
+                return False
+            if self.settings.output_directory is None or not self.settings.output_directory.is_dir():
+                self.logger.error(f"Output path is invalid: {output_path}")
+                return False
             cmd = [
-                str(self.settings.create_pbr_path.resolve()),
+                str(self.settings.create_pbr_path.resolve()), # type: ignore create_pbr_path is checked in is_valid_file
                 '--input_dir', str(mod_path.resolve()),
                 '--output_dir', str(output_path.resolve()),
                 '--format', self.settings.texture_format,
@@ -805,7 +849,7 @@ class PBRifyWindow(QMainWindow):
         # Header
         # ─────────────────────────────────────────────────────────────────────
         header_widget = QWidget()
-        header_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        header_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         header_layout = QVBoxLayout(header_widget)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(2)
@@ -837,7 +881,7 @@ class PBRifyWindow(QMainWindow):
         # Paths Section
         # ─────────────────────────────────────────────────────────────────────
         paths_group = QGroupBox("Paths")
-        paths_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        paths_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         paths_layout = QGridLayout(paths_group)
         paths_layout.setSpacing(8)
         paths_layout.setContentsMargins(10, 20, 10, 10)
@@ -845,7 +889,7 @@ class PBRifyWindow(QMainWindow):
         # Mods Directory
         mods_label = QLabel("Mods Directory:")
         mods_label.setFixedWidth(110)
-        paths_layout.addWidget(mods_label, 0, 0, Qt.AlignLeft)
+        paths_layout.addWidget(mods_label, 0, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.mods_dir_edit = QLineEdit()
         self.mods_dir_edit.setText(str(self.settings.mods_directory or ""))
@@ -862,7 +906,7 @@ class PBRifyWindow(QMainWindow):
         # Output Directory
         output_label = QLabel("Output Directory:")
         output_label.setFixedWidth(110)
-        paths_layout.addWidget(output_label, 1, 0, Qt.AlignLeft)
+        paths_layout.addWidget(output_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.output_dir_edit = QLineEdit()
         self.output_dir_edit.setText(str(self.settings.output_directory or ""))
@@ -879,7 +923,7 @@ class PBRifyWindow(QMainWindow):
         # create_pbr.exe Path
         pbr_label = QLabel("create_pbr.exe:")
         pbr_label.setFixedWidth(110)
-        paths_layout.addWidget(pbr_label, 2, 0, Qt.AlignLeft)
+        paths_layout.addWidget(pbr_label, 2, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.create_pbr_edit = QLineEdit()
         self.create_pbr_edit.setText(str(self.settings.create_pbr_path or ""))
@@ -903,13 +947,13 @@ class PBRifyWindow(QMainWindow):
         # Options Section
         # ─────────────────────────────────────────────────────────────────────
         options_group = QGroupBox("Conversion Options")
-        options_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        options_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         options_layout = QGridLayout(options_group)
         options_layout.setSpacing(10)
         options_layout.setContentsMargins(10, 20, 10, 10)
 
         # Model
-        options_layout.addWidget(QLabel("Model:"), 0, 0, Qt.AlignLeft)
+        options_layout.addWidget(QLabel("Model:"), 0, 0, Qt.AlignmentFlag.AlignLeft)
         self.checkpoint_combo = QComboBox()
         self.checkpoint_combo.addItems(ALLOWED_CHECKPOINTS)
         self.checkpoint_combo.setCurrentText(self.settings.checkpoint)
@@ -918,7 +962,7 @@ class PBRifyWindow(QMainWindow):
         options_layout.addWidget(self.checkpoint_combo, 1, 0)
 
         # Format
-        options_layout.addWidget(QLabel("Output Format:"), 0, 1, Qt.AlignLeft)
+        options_layout.addWidget(QLabel("Output Format:"), 0, 1, Qt.AlignmentFlag.AlignLeft)
         self.format_combo = QComboBox()
         self.format_combo.addItems(ALLOWED_TEXTURE_FORMATS)
         self.format_combo.setCurrentText(self.settings.texture_format)
@@ -927,7 +971,7 @@ class PBRifyWindow(QMainWindow):
         options_layout.addWidget(self.format_combo, 1, 1)
 
         # Tile Size
-        options_layout.addWidget(QLabel("Max Tile Size:"), 0, 2, Qt.AlignLeft)
+        options_layout.addWidget(QLabel("Max Tile Size:"), 0, 2, Qt.AlignmentFlag.AlignLeft)
         self.tile_combo = QComboBox()
         self.tile_combo.addItems(ALLOWED_TILE_SIZES)
         self.tile_combo.setCurrentText(self.settings.max_tile_size)
@@ -941,7 +985,7 @@ class PBRifyWindow(QMainWindow):
         # Info
         info_label = QLabel("⚠ Using 2048 tile size requires significant VRAM")
         info_label.setStyleSheet("color: #d19a66;")
-        options_layout.addWidget(info_label, 1, 3, Qt.AlignRight | Qt.AlignVCenter)
+        options_layout.addWidget(info_label, 1, 3, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         main_layout.addWidget(options_group)
 
@@ -949,7 +993,7 @@ class PBRifyWindow(QMainWindow):
         # Progress Section
         # ─────────────────────────────────────────────────────────────────────
         progress_group = QGroupBox("Progress")
-        progress_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        progress_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         progress_layout = QGridLayout(progress_group)
         progress_layout.setSpacing(8)
         progress_layout.setContentsMargins(10, 20, 10, 10)
@@ -957,7 +1001,7 @@ class PBRifyWindow(QMainWindow):
         # Overall progress
         overall_label_title = QLabel("Overall Progress:")
         overall_label_title.setFixedWidth(110)
-        progress_layout.addWidget(overall_label_title, 0, 0, Qt.AlignLeft)
+        progress_layout.addWidget(overall_label_title, 0, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.overall_progress = QProgressBar()
         self.overall_progress.setMinimum(0)
@@ -969,13 +1013,13 @@ class PBRifyWindow(QMainWindow):
 
         self.overall_label = QLabel("0 / 0")
         self.overall_label.setFixedWidth(80)
-        self.overall_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.overall_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         progress_layout.addWidget(self.overall_label, 0, 2)
 
         # Current mod progress
         mod_label_title = QLabel("Current Mod:")
         mod_label_title.setFixedWidth(110)
-        progress_layout.addWidget(mod_label_title, 1, 0, Qt.AlignLeft)
+        progress_layout.addWidget(mod_label_title, 1, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.mod_progress = QProgressBar()
         self.mod_progress.setMinimum(0)
@@ -987,13 +1031,13 @@ class PBRifyWindow(QMainWindow):
 
         self.mod_label = QLabel("0 / 0")
         self.mod_label.setFixedWidth(80)
-        self.mod_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.mod_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         progress_layout.addWidget(self.mod_label, 1, 2)
 
         # Status
         self.status_label = QLabel("● Ready")
         self.status_label.setStyleSheet("color: #4ec9b0; font-weight: bold;")
-        progress_layout.addWidget(self.status_label, 2, 0, 1, 3, Qt.AlignLeft)
+        progress_layout.addWidget(self.status_label, 2, 0, 1, 3, Qt.AlignmentFlag.AlignLeft)
 
         progress_layout.setColumnStretch(0, 0)
         progress_layout.setColumnStretch(1, 1)
@@ -1005,7 +1049,7 @@ class PBRifyWindow(QMainWindow):
         # Control Buttons
         # ─────────────────────────────────────────────────────────────────────
         buttons_widget = QWidget()
-        buttons_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        buttons_widget.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         buttons_layout = QHBoxLayout(buttons_widget)
         buttons_layout.setContentsMargins(0, 5, 0, 5)
         buttons_layout.setSpacing(10)
@@ -1045,14 +1089,14 @@ class PBRifyWindow(QMainWindow):
         # Log Section
         # ─────────────────────────────────────────────────────────────────────
         log_group = QGroupBox("Log Output")
-        log_group.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        log_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         log_layout = QVBoxLayout(log_group)
         log_layout.setContentsMargins(10, 20, 10, 10)
         log_layout.setSpacing(8)
 
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.log_text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         log_layout.addWidget(self.log_text, 1)
 
         # Clear log button
@@ -1134,7 +1178,7 @@ class PBRifyWindow(QMainWindow):
             self.settings.output_directory = None
             
         create_pbr = self.create_pbr_edit.text()
-        if create_pbr and Path(create_pbr).is_file():
+        if create_pbr and Path(create_pbr).is_file() and Path(create_pbr).name.lower() == 'create_pbr.exe':
             self.settings.create_pbr_path = Path(create_pbr)
         else:
             self.settings.create_pbr_path = None
@@ -1209,6 +1253,7 @@ class PBRifyWindow(QMainWindow):
                     "Mods are skipped if:\n"
                     "• They don't have a 'textures' folder\n"
                     "• They already have a 'pbr' folder\n"
+                    "• Diffuse and normal names do not match\n"
                     "• Output already exists")
             else:
                 QMessageBox.information(self, "Scan Complete", 
@@ -1238,9 +1283,9 @@ class PBRifyWindow(QMainWindow):
             f"Source: {self.settings.mods_directory}\n"
             f"Output: {self.settings.output_directory}\n\n"
             "Continue?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
         
-        if reply != QMessageBox.Yes:
+        if reply != QMessageBox.StandardButton.Yes:
             return
         
         # Save settings
@@ -1326,9 +1371,9 @@ class PBRifyWindow(QMainWindow):
         if self.worker and self.worker.isRunning():
             reply = QMessageBox.question(self, "Quit",
                 "Processing is still running.\nAre you sure you want to quit?",
-                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)
             
-            if reply == QMessageBox.Yes:
+            if reply == QMessageBox.StandardButton.Yes:
                 self.worker.stop()
                 self.worker.wait(3000)  # Wait up to 3 seconds
                 event.accept()
