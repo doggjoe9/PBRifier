@@ -468,10 +468,10 @@ def mod_has_valid_diffuse_normal_pair(mod_path: Path) -> bool:
         for normal_path in all_normals:
             normal_stem = normal_path.stem.lower()
             normal_stem = normal_suffix_regex.sub('', normal_stem)
-            has_diffuse = any(normal_path.parent.glob(f'{normal_stem}*.dds', case_sensitive=False)) or \
-                          any(normal_path.parent.glob(f'{normal_stem}_d.png', case_sensitive=False)) or \
-                          any(normal_path.parent.glob(f'{normal_stem}_diff.png', case_sensitive=False)) or \
-                          any(normal_path.parent.glob(f'{normal_stem}_diffuse.png', case_sensitive=False))
+            has_diffuse = any(normal_path.parent.glob(f'{normal_stem}.dds', case_sensitive=False)) or \
+                          any(normal_path.parent.glob(f'{normal_stem}_d.dds', case_sensitive=False)) or \
+                          any(normal_path.parent.glob(f'{normal_stem}_diff.dds', case_sensitive=False)) or \
+                          any(normal_path.parent.glob(f'{normal_stem}_diffuse.dds', case_sensitive=False))
             if has_diffuse:
                 return True
     return False
