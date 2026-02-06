@@ -1,4 +1,4 @@
-# Author: shak
+# Authors: AlhimikPh, shak
 # Description: A script to batch convert mod textures to PBR using create_pbr.exe
 # Requirements: Python 3.12+, tqdm
 # Usage: python3 pbrify.py
@@ -28,6 +28,7 @@
 # ----------------------------------------------------------------
 
 # CREDIT DISCLOSURE-----------------------------------------------
+# Thank you to AlhimikPh for cleaning up my messy code, implementing a proper UI, and giving me advice on PyInstaller compilation.
 # create_pbr.exe is provided as AI PBR Converter https://www.nexusmods.com/skyrimspecialedition/mods/156542
 # I did not create create_pbr.exe nor do I own any rights to it.
 # This script is simply a batch processing tool to interface with create_pbr.exe
