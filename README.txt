@@ -83,3 +83,6 @@
 # - UI update by AlhimikPh (thank you!)
 # - Minor potential bug fixes
 # - Now skips any mods that cannot be converted by create_pbr.exe
+#
+# 2.0.1
+# - Fixed a bug that caused files to not be renamed.
