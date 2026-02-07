@@ -721,8 +721,8 @@ class ProcessorWorker(QThread):
                     sanitized_name = fix_suffix_case(texture_path.name, ALLOWED_SUFFIXES)
                     if sanitized_name != texture_path.name:
                         new_path = texture_path.with_name(sanitized_name)
-                        self.logger.debug(f"Renaming: {texture_path.name} -> {sanitized_name}")
-                        os.rename(texture_path.resolve(), new_path.resolve())
+                        self.logger.debug(f"Renaming: {texture_path} -> {sanitized_name}")
+                        os.rename(texture_path, new_path)
                         self.stats.renamed_files += 1
         except Exception as e:
             self.logger.error(f"Error sanitizing textures: {e}")

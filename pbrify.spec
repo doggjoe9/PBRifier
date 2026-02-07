@@ -10,8 +10,8 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
-    noarchive=False,
+    excludes=['socket', 'ssl', 'http', 'urllib', 'email', 'mimetypes', 'netrc', 'nntplib', 'PySide6.QtNetwork'],
+    noarchive=True,
     optimize=0,
 )
 pyz = PYZ(a.pure)
