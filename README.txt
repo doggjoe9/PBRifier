@@ -86,3 +86,7 @@
 #
 # 2.0.1
 # - Fixed a bug that caused files to not be renamed.
+#
+# 2.1.0
+# - Added support for filtering disabled mods using MO2 profile.
+# - Reworked margins to make the UI neater at small window sizes.
