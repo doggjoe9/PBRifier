@@ -24,7 +24,7 @@ try:
         QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
         QGridLayout, QLabel, QLineEdit, QPushButton, QComboBox,
         QProgressBar, QTextEdit, QGroupBox, QFileDialog, QMessageBox,
-        QStatusBar, QFrame, QSplitter, QSizePolicy
+        QStatusBar, QFrame, QSplitter, QSizePolicy, QCheckBox
     )
     from PySide6.QtCore import Qt, QThread, Signal, QObject
     from PySide6.QtGui import QFont, QIcon, QPalette, QColor
@@ -416,7 +416,6 @@ def has_valid_pairs(mod_folder: Path) -> bool:
         return False
     except Exception:
         return False
-                
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -429,17 +428,40 @@ class Settings:
     mods_directory: Optional[Path] = None
     output_directory: Optional[Path] = None
     create_pbr_path: Optional[Path] = None
+    modlist_path_mo2: Optional[Path] = None
+    use_mo2_profile: bool = False
     checkpoint: str = DEFAULT_CHECKPOINT
     texture_format: str = DEFAULT_TEXTURE_FORMAT
     max_tile_size: str = DEFAULT_TILE_SIZE
     
+    def scan_mo2_active_mods(self) -> set[str]:
+        if (self.use_mo2_profile and
+            self.modlist_path_mo2 and
+            self.modlist_path_mo2.is_file()
+            and self.modlist_path_mo2.name.lower() == 'modlist.txt'):
+            try:
+                active_mods = set()
+                with open(self.modlist_path_mo2, 'r') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('+'):
+                            mod_name = line[1:].strip()
+                            active_mods.add(mod_name)
+                return active_mods
+            except Exception:
+                return set()
+        else:
+            return set()
+
     def is_valid(self) -> bool:
         """Check if all required settings are valid."""
         return (
             self.mods_directory is not None and self.mods_directory.is_dir() and
             self.output_directory is not None and self.output_directory.is_dir() and
             self.create_pbr_path is not None and self.create_pbr_path.is_file() and
-            self.create_pbr_path.name.lower() == 'create_pbr.exe'
+            self.create_pbr_path.name.lower() == 'create_pbr.exe' and
+            (self.modlist_path_mo2 is None or 
+             (self.modlist_path_mo2.is_file() and self.modlist_path_mo2.name.lower() == 'modlist.txt'))
         )
     
     def save(self, path: Path) -> bool:
@@ -452,9 +474,15 @@ class Settings:
                     f.write(f'output_directory={self.output_directory.resolve()}\n')
                 if self.create_pbr_path:
                     f.write(f'create_pbr_path={self.create_pbr_path.resolve()}\n')
+                if self.modlist_path_mo2:
+                    f.write(f'modlist_path_mo2={self.modlist_path_mo2.resolve()}\n')
+                else:
+                    f.write('modlist_path_mo2=\n')
+                f.write(f'use_mo2_profile={self.use_mo2_profile}\n')
                 f.write(f'checkpoint={self.checkpoint}\n')
                 f.write(f'texture_format={self.texture_format}\n')
                 f.write(f'max_tile_size={self.max_tile_size}\n')
+                
             return True
         except Exception:
             return False
@@ -492,6 +520,11 @@ class Settings:
                 if p.is_file() and p.name.lower() == 'create_pbr.exe':
                     settings.create_pbr_path = p
             
+            if 'modlist_path_mo2' in config:
+                p = Path(config['modlist_path_mo2'])
+                if p.is_file() and p.name.lower() == 'modlist.txt':
+                    settings.modlist_path_mo2 = p
+            
             if 'checkpoint' in config and config['checkpoint'] in ALLOWED_CHECKPOINTS:
                 settings.checkpoint = config['checkpoint']
             
@@ -501,6 +534,8 @@ class Settings:
             if 'max_tile_size' in config and config['max_tile_size'] in ALLOWED_TILE_SIZES:
                 settings.max_tile_size = config['max_tile_size']
                 
+            if 'use_mo2_profile' in config:
+                settings.use_mo2_profile = settings.modlist_path_mo2 is not None and config['use_mo2_profile'].lower() == 'true'
         except Exception:
             pass
         
@@ -555,17 +590,17 @@ class ProcessingStats:
         lines = [
             "═" * 50,
             "PROCESSING COMPLETE - SUMMARY",
-            "═" * 50,
-            f"Duration: {self.get_duration()}",
-            f"Total mods found: {self.total_mods}",
-            f"Mods processed: {self.processed_mods}",
-            f"Mods skipped: {self.skipped_mods}",
-            f"Mods failed: {self.failed_mods}",
-            f"Files renamed: {self.renamed_files}",
-            f"Textures processed: {self.processed_textures}",
-            f"Textures skipped: {self.skipped_textures}",
-            "═" * 50,
-        ]
+            "═" * 50,]
+        lines.append(f"Duration: {self.get_duration()}")
+        lines.append(f"Total mods found: {self.total_mods}")
+        lines.append(f"Mods processed: {self.processed_mods}")
+        lines.append(f"Mods skipped: {self.skipped_mods}")
+        lines.append(f"Mods failed: {self.failed_mods}")
+        lines.append(f"Files renamed: {self.renamed_files}")
+        lines.append(f"Textures processed: {self.processed_textures}")
+        lines.append(f"Textures skipped: {self.skipped_textures}")
+
+        lines.append("═" * 50)
         return "\n".join(lines)
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -614,14 +649,20 @@ class ProcessorWorker(QThread):
                 not self.settings.output_directory.is_dir()):
                 return []
             
+            active_mods = self.settings.scan_mo2_active_mods()
+
             all_folders = [f for f in self.settings.mods_directory.iterdir() if f.is_dir()]
             
             for folder in all_folders:
-                if has_textures_but_no_pbr(folder):
-                    if has_valid_pairs(folder):
-                        output_path = self.settings.output_directory / f'{folder.name} PBR'
-                        if not output_path.exists():
-                            mods.append(folder)
+                if self.settings.use_mo2_profile and folder.name not in active_mods:
+                    continue
+                if not has_textures_but_no_pbr(folder):
+                    continue
+                if not has_valid_pairs(folder):
+                    continue
+                output_path = self.settings.output_directory / f'{folder.name} PBR'
+                if not output_path.exists():
+                    mods.append(folder)
         except Exception as e:
             self.logger.error(f"Error scanning mods directory: {e}")
             return [] # in case of error, return empty list to avoid processing
@@ -884,64 +925,94 @@ class PBRifyWindow(QMainWindow):
         paths_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         paths_layout = QGridLayout(paths_group)
         paths_layout.setSpacing(8)
-        paths_layout.setContentsMargins(10, 20, 10, 10)
+        paths_layout.setContentsMargins(10, 0, 10, 0)
 
         # Mods Directory
         mods_label = QLabel("Mods Directory:")
-        mods_label.setFixedWidth(110)
+        mods_label.setFixedWidth(130)
         paths_layout.addWidget(mods_label, 0, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.mods_dir_edit = QLineEdit()
         self.mods_dir_edit.setText(str(self.settings.mods_directory or ""))
         self.mods_dir_edit.setPlaceholderText("Select the folder containing your mods...")
         self.mods_dir_edit.setMinimumHeight(30)
-        paths_layout.addWidget(self.mods_dir_edit, 0, 1)
+        paths_layout.addWidget(self.mods_dir_edit, 0, 2)
 
         mods_browse_btn = QPushButton("Browse...")
         mods_browse_btn.setProperty("class", "secondary")
+        mods_browse_btn.setMinimumHeight(30)
         mods_browse_btn.setFixedWidth(90)
         mods_browse_btn.clicked.connect(self.browse_mods_dir)
-        paths_layout.addWidget(mods_browse_btn, 0, 2)
+        paths_layout.addWidget(mods_browse_btn, 0, 3)
 
         # Output Directory
         output_label = QLabel("Output Directory:")
-        output_label.setFixedWidth(110)
+        output_label.setFixedWidth(130)
         paths_layout.addWidget(output_label, 1, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.output_dir_edit = QLineEdit()
         self.output_dir_edit.setText(str(self.settings.output_directory or ""))
         self.output_dir_edit.setPlaceholderText("Select where to save converted mods...")
         self.output_dir_edit.setMinimumHeight(30)
-        paths_layout.addWidget(self.output_dir_edit, 1, 1)
+        paths_layout.addWidget(self.output_dir_edit, 1, 2)
 
         output_browse_btn = QPushButton("Browse...")
         output_browse_btn.setProperty("class", "secondary")
+        output_browse_btn.setMinimumHeight(30)
         output_browse_btn.setFixedWidth(90)
         output_browse_btn.clicked.connect(self.browse_output_dir)
-        paths_layout.addWidget(output_browse_btn, 1, 2)
+        paths_layout.addWidget(output_browse_btn, 1, 3)
 
         # create_pbr.exe Path
         pbr_label = QLabel("create_pbr.exe:")
-        pbr_label.setFixedWidth(110)
-        paths_layout.addWidget(pbr_label, 2, 0, Qt.AlignmentFlag.AlignLeft)
+        pbr_label.setFixedWidth(130)
+        paths_layout.addWidget(pbr_label, 3, 0, Qt.AlignmentFlag.AlignLeft)
 
         self.create_pbr_edit = QLineEdit()
         self.create_pbr_edit.setText(str(self.settings.create_pbr_path or ""))
         self.create_pbr_edit.setPlaceholderText("Select create_pbr.exe...")
         self.create_pbr_edit.setMinimumHeight(30)
-        paths_layout.addWidget(self.create_pbr_edit, 2, 1)
+        paths_layout.addWidget(self.create_pbr_edit, 3, 2)
 
         pbr_browse_btn = QPushButton("Browse...")
         pbr_browse_btn.setProperty("class", "secondary")
+        pbr_browse_btn.setMinimumHeight(30)
         pbr_browse_btn.setFixedWidth(90)
         pbr_browse_btn.clicked.connect(self.browse_create_pbr)
-        paths_layout.addWidget(pbr_browse_btn, 2, 2)
+        paths_layout.addWidget(pbr_browse_btn, 3, 3)
+
+        # Toggle MO2
+        mo2_label = QLabel("Ignore Disabled (MO2):")
+        mo2_label.setFixedWidth(130)
+        paths_layout.addWidget(mo2_label, 4, 0, Qt.AlignmentFlag.AlignLeft)
+
+        self.use_mo2_checkbox = QCheckBox()
+        self.use_mo2_checkbox.setChecked(self.settings.use_mo2_profile)
+        self.use_mo2_checkbox.stateChanged.connect(self.toggle_use_mo2)
+        paths_layout.addWidget(self.use_mo2_checkbox, 4, 1, Qt.AlignmentFlag.AlignLeft)
+
+        self.modlist_edit = QLineEdit()
+        self.modlist_edit.setText(str(self.settings.modlist_path_mo2 or ""))
+        self.modlist_edit.setPlaceholderText("Select profiles->[profile name]->modlist.txt...")
+        self.modlist_edit.setMinimumHeight(30)
+        self.modlist_edit.setHidden(not self.settings.use_mo2_profile)
+        paths_layout.addWidget(self.modlist_edit, 4, 2)
+        
+        self.modlist_browse_btn = QPushButton("Browse...")
+        self.modlist_browse_btn.setProperty("class", "secondary")
+        self.modlist_browse_btn.setMinimumHeight(30)
+        self.modlist_browse_btn.setFixedWidth(90)
+        self.modlist_browse_btn.clicked.connect(self.browse_modlist_mo2)
+        self.modlist_browse_btn.setHidden(not self.settings.use_mo2_profile)
+        paths_layout.addWidget(self.modlist_browse_btn, 4, 3)
 
         paths_layout.setColumnStretch(0, 0)
-        paths_layout.setColumnStretch(1, 1)
-        paths_layout.setColumnStretch(2, 0)
+        paths_layout.setColumnStretch(1, 0)
+        paths_layout.setColumnStretch(2, 1)
+        paths_layout.setColumnStretch(3, 0)
 
         main_layout.addWidget(paths_group)
+
 
         # ─────────────────────────────────────────────────────────────────────
         # Options Section
@@ -950,7 +1021,7 @@ class PBRifyWindow(QMainWindow):
         options_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         options_layout = QGridLayout(options_group)
         options_layout.setSpacing(10)
-        options_layout.setContentsMargins(10, 20, 10, 10)
+        options_layout.setContentsMargins(10, 0, 10, 0)
 
         # Model
         options_layout.addWidget(QLabel("Model:"), 0, 0, Qt.AlignmentFlag.AlignLeft)
@@ -996,7 +1067,7 @@ class PBRifyWindow(QMainWindow):
         progress_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         progress_layout = QGridLayout(progress_group)
         progress_layout.setSpacing(8)
-        progress_layout.setContentsMargins(10, 20, 10, 10)
+        progress_layout.setContentsMargins(10, 0, 10, 0)
 
         # Overall progress
         overall_label_title = QLabel("Overall Progress:")
@@ -1091,7 +1162,7 @@ class PBRifyWindow(QMainWindow):
         log_group = QGroupBox("Log Output")
         log_group.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         log_layout = QVBoxLayout(log_group)
-        log_layout.setContentsMargins(10, 20, 10, 10)
+        log_layout.setContentsMargins(10, 0, 10, 0)
         log_layout.setSpacing(8)
 
         self.log_text = QTextEdit()
@@ -1163,6 +1234,27 @@ class PBRifyWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Invalid File", "Please select create_pbr.exe")
     
+    def browse_modlist_mo2(self):
+        """Browse for modlist.txt from MO2 Profile."""
+        initial = self.modlist_edit.text() or str(Path.cwd())
+        if initial and Path(initial).is_file():
+            initial = str(Path(initial).parent)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Select modlist.txt", initial, "Text Files (*.txt)"
+        )
+        if path:
+            if Path(path).name.lower() == 'modlist.txt':
+                self.modlist_edit.setText(path)
+                self.logger.info(f"modlist.txt set to: {path}")
+            else:
+                QMessageBox.critical(self, "Invalid File", "Please select modlist.txt")
+    
+    def toggle_use_mo2(self):
+        """Toggle using MO2 profile."""
+        use_mo2 = self.use_mo2_checkbox.isChecked()
+        self.modlist_edit.setHidden(not use_mo2)
+        self.modlist_browse_btn.setHidden(not use_mo2)
+    
     def update_settings_from_ui(self):
         """Update settings from UI values."""
         mods_dir = self.mods_dir_edit.text()
@@ -1182,7 +1274,14 @@ class PBRifyWindow(QMainWindow):
             self.settings.create_pbr_path = Path(create_pbr)
         else:
             self.settings.create_pbr_path = None
-            
+
+        modlist_path = self.modlist_edit.text()
+        if modlist_path and Path(modlist_path).is_file() and Path(modlist_path).name.lower() == 'modlist.txt':
+            self.settings.modlist_path_mo2 = Path(modlist_path)
+        else:
+            self.settings.modlist_path_mo2 = None
+        
+        self.settings.use_mo2_profile = self.use_mo2_checkbox.isChecked()
         self.settings.checkpoint = self.checkpoint_combo.currentText()
         self.settings.texture_format = self.format_combo.currentText()
         self.settings.max_tile_size = self.tile_combo.currentText()
@@ -1208,6 +1307,12 @@ class PBRifyWindow(QMainWindow):
             if self.settings.mods_directory.resolve() == self.settings.output_directory.resolve():
                 errors.append("• Mods directory and output directory cannot be the same!")
         
+        if self.settings.use_mo2_profile:
+            if not self.settings.modlist_path_mo2 or not self.settings.modlist_path_mo2.is_file():
+                errors.append("• MO2 profile is enabled but modlist.txt is not set or does not exist.")
+            elif self.settings.modlist_path_mo2.name.lower() != 'modlist.txt':
+                errors.append("• Selected MO2 profile file is not modlist.txt.")
+        
         if errors:
             QMessageBox.critical(self, "Invalid Settings", "\n".join(errors))
             return False
@@ -1216,6 +1321,8 @@ class PBRifyWindow(QMainWindow):
     
     def save_settings(self):
         """Save current settings to config file."""
+        if not self.validate_settings():
+            return
         self.update_settings_from_ui()
         if self.settings.save(self.config_path):
             self.logger.info("Settings saved successfully.")
